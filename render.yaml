@@ -1,27 +1,11 @@
 services:
-  - type: worker
-    name: hdhub4u-telegram-bot
-    runtime: python
-    plan: free
-    buildCommand: pip3 install -r requirements.txt
-    startCommand: python3 bot.py
-    autoDeploy: true
-    pythonVersion: "3.11.9"
-
+  - type: web
+    name: hdhub4u-scraper
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scraper.py
     envVars:
-      - key: TELEGRAM_API_ID
-        sync: false
-      - key: TELEGRAM_API_HASH
-        sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: TELEGRAM_CHANNEL_ID
+      - key: TELEGRAM_CHAT_ID
         sync: false
-      - key: MONGO_URI
-        sync: false
-      - key: WEBSITE_URL
-        value: https://new3.hdhub4u.cl/
-      - key: CHECK_INTERVAL_MINUTES
-        value: "30"
-      - key: MAX_DL_LINKS
-        value: "10"
