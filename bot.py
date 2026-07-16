@@ -4,14 +4,14 @@ import re
 import signal
 import logging
 import asyncio
-from html import unescape
+from html import unescape, escape
 from datetime import datetime, timezone
 
 import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient, ASCENDING
 from pymongo.errors import DuplicateKeyError
-from pyrogram import Client
+from pyrogram import Client, enums
 from pyrogram.errors import FloodWait, BadRequest
 
 # ─────────────────────────────────────────────────
@@ -39,7 +39,7 @@ MAX_DL_LINKS   = int(os.environ.get("MAX_DL_LINKS", "10"))
 # ─────────────────────────────────────────────────
 #  MONGODB
 # ─────────────────────────────────────────────────
-_mongo_client: MongoClient | None = None
+_mongo_client = None
 
 def get_db():
     global _mongo_client
@@ -50,29 +50,26 @@ def get_db():
 def setup_db():
     col = get_db()["sent_posts"]
     col.create_index([("url", ASCENDING)], unique=True)
-    log.info("✅ MongoDB ready — sent_posts collection indexed")
-    return col
+    log.info("✅ MongoDB ready")
 
 def is_sent(url: str) -> bool:
     try:
-        col = get_db()["sent_posts"]
-        return col.count_documents({"url": url}, limit=1) > 0
+        return get_db()["sent_posts"].count_documents({"url": url}, limit=1) > 0
     except Exception as e:
-        log.warning(f"MongoDB read failed: {e}")
+        log.warning(f"MongoDB read error: {e}")
         return False
 
 def mark_sent(url: str, title: str):
     try:
-        col = get_db()["sent_posts"]
-        col.insert_one({
+        get_db()["sent_posts"].insert_one({
             "url":     url,
             "title":   title,
             "sent_at": datetime.now(timezone.utc),
         })
     except DuplicateKeyError:
-        log.debug(f"Already exists in DB: {url}")
+        pass
     except Exception as e:
-        log.error(f"MongoDB write failed: {e}")
+        log.error(f"MongoDB write error: {e}")
 
 # ─────────────────────────────────────────────────
 #  REQUESTS SESSION
@@ -88,28 +85,13 @@ SESSION.headers.update({
 })
 
 # ─────────────────────────────────────────────────
-#  MARKDOWN UTILS
-# ─────────────────────────────────────────────────
-def escape_md(text: str) -> str:
-    text = unescape(str(text))
-    for ch in r'\_*[]()~`>#+-=|{}.!':
-        text = text.replace(ch, f'\\{ch}')
-    return text
-
-def escape_url(url: str) -> str:
-    return url.replace('\\', '\\\\').replace(')', '\\)')
-
-# ─────────────────────────────────────────────────
 #  SCRAPER HELPERS
 # ─────────────────────────────────────────────────
 def is_skip_heading(text: str) -> bool:
     low = text.lower().strip()
     patterns = [
         r'single.?episode.?x264',
-        r'\b4k\b',
-        r'\bsdr\b',
-        r'\bhdr\b',
-        r'\bdv\b',
+        r'\b4k\b', r'\bsdr\b', r'\bhdr\b', r'\bdv\b',
         r'web.?series.?episode',
     ]
     return any(re.search(p, low) for p in patterns)
@@ -131,7 +113,6 @@ def get_latest_posts() -> list:
 
     soup  = BeautifulSoup(resp.text, "html.parser")
     posts = []
-
     for li in soup.select("li.thumb"):
         try:
             a_tag   = li.select_one("figure a")
@@ -159,7 +140,7 @@ def get_download_links(post_url: str) -> list:
         resp = SESSION.get(post_url, timeout=15)
         resp.raise_for_status()
     except Exception as e:
-        log.error(f"Post fetch failed ({post_url}): {e}")
+        log.error(f"Post fetch failed: {e}")
         return []
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -203,26 +184,32 @@ def get_download_links(post_url: str) -> list:
     return links
 
 # ─────────────────────────────────────────────────
-#  MESSAGE BUILDER
+#  MESSAGE BUILDER — HTML parse mode (reliable)
 # ─────────────────────────────────────────────────
 def build_message(post: dict, dl_links: list) -> str:
-    title_esc    = escape_md(post["title"])
-    post_url_esc = escape_url(post["url"])
+    """
+    HTML parse mode use karo — MarkdownV2 se zyada stable.
+    Escaping simple: sirf & < > ko escape karo.
+    """
+    title = escape(post["title"])   # HTML escape
 
     links_text = ""
     for i, link in enumerate(dl_links, 1):
-        label_esc = escape_md(link["label"])
-        url_esc   = escape_url(link["url"])
-        links_text += f"\n🔗 {i}\\. [{label_esc}]({url_esc})"
+        label = escape(link["label"])
+        url   = link["url"]
+        links_text += f"\n🔗 {i}. <a href=\"{url}\">{label}</a>"
 
-    return (
-        f"🎬 *{title_esc}*"
+    post_url = post["url"]
+
+    msg = (
+        f"🎬 <b>{title}</b>"
         f"\n\n"
-        f"📥 *DOWNLOAD LINKS:*"
+        f"📥 <b>DOWNLOAD LINKS:</b>"
         f"{links_text}"
         f"\n\n"
-        f"🌐 [Original Post]({post_url_esc})"
+        f"🌐 <a href=\"{post_url}\">Original Post</a>"
     )
+    return msg
 
 # ─────────────────────────────────────────────────
 #  SENDER
@@ -234,14 +221,14 @@ async def send_post(app: Client, post: dict, dl_links: list) -> bool:
 
     message = build_message(post, dl_links)
     if len(message) > 4096:
-        message = message[:4092] + "\\.\\.\\."
+        message = message[:4090] + "..."
 
     for attempt in range(1, 4):
         try:
             await app.send_message(
                 chat_id=CHANNEL_ID,
                 text=message,
-                parse_mode="md",
+                parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True,
             )
             log.info(f"✅ Sent: {post['title'][:60]}")
@@ -249,7 +236,7 @@ async def send_post(app: Client, post: dict, dl_links: list) -> bool:
 
         except FloodWait as fw:
             wait = fw.value + 5
-            log.warning(f"FloodWait {fw.value}s — waiting {wait}s")
+            log.warning(f"FloodWait {fw.value}s — sleeping {wait}s")
             await asyncio.sleep(wait)
 
         except BadRequest as e:
@@ -274,7 +261,6 @@ async def send_plain_fallback(app: Client, post: dict, dl_links: list) -> bool:
         f"📥 DOWNLOAD LINKS:{links_text}\n\n"
         f"🌐 {post['url']}"
     )[:4096]
-
     try:
         await app.send_message(chat_id=CHANNEL_ID, text=text)
         log.info(f"✅ Sent (plain): {post['title'][:50]}")
@@ -315,7 +301,7 @@ async def check_and_post(app: Client):
     log.info(f"✅ Done — {new_count} new post(s)." if new_count else "ℹ️ No new posts.")
 
 async def main():
-    log.info("🚀 HDHub4u Bot starting (Pyrofork + MongoDB)")
+    log.info("🚀 HDHub4u Bot starting")
 
     try:
         setup_db()
@@ -335,7 +321,7 @@ async def main():
 
     async with app:
         me = await app.get_me()
-        log.info(f"✅ Pyrofork ready — @{me.username}")
+        log.info(f"✅ Connected as @{me.username}")
 
         await check_and_post(app)
 
@@ -348,7 +334,7 @@ async def main():
 #  SIGNAL HANDLING
 # ─────────────────────────────────────────────────
 def handle_sigterm(*_):
-    log.info("SIGTERM — shutting down.")
+    log.info("Shutting down.")
     raise SystemExit(0)
 
 if __name__ == "__main__":
