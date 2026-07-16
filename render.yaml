@@ -3,8 +3,8 @@ services:
     name: hdhub4u-telegram-bot
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    buildCommand: pip3 install -r requirements.txt
+    startCommand: python3 bot.py
     autoDeploy: true
     pythonVersion: "3.11.9"
 
