@@ -11,8 +11,8 @@ import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient, ASCENDING
 from pymongo.errors import DuplicateKeyError
-from pyrofork import Client
-from pyrofork.errors import FloodWait, BadRequest
+from pyrogram import Client
+from pyrogram.errors import FloodWait, BadRequest
 
 # ─────────────────────────────────────────────────
 #  LOGGING
