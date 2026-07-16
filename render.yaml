@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────
+#  render.yaml — Render.com Blueprint
+#  Sirf ek Worker service chahiye (Redis nahi)
+#  MongoDB Atlas externally connect hoga
+# ─────────────────────────────────────────────
+
+services:
+  - type: worker
+    name: hdhub4u-telegram-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    autoDeploy: true
+
+    envVars:
+      - key: TELEGRAM_API_ID
+        sync: false           # Manually set karo Render Dashboard mein
+
+      - key: TELEGRAM_API_HASH
+        sync: false
+
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+
+      - key: TELEGRAM_CHANNEL_ID
+        sync: false
+
+      - key: MONGO_URI
+        sync: false           # MongoDB Atlas connection string
+
+      - key: WEBSITE_URL
+        value: https://new3.hdhub4u.cl/
+
+      - key: CHECK_INTERVAL_MINUTES
+        value: "30"
+
+      - key: MAX_DL_LINKS
+        value: "10"

@@ -1,0 +1,6 @@
+pyrogram==2.0.106
+tgcrypto==1.2.5
+requests==2.31.0
+beautifulsoup4==4.12.3
+pymongo==4.7.2
+lxml==5.2.1
